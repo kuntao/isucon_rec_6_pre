@@ -134,7 +134,10 @@ module Isuda
       end
 
       def load_stars(keyword)
-        db_isutar.xquery(%| select * from star where keyword = ? |, keyword).to_a.map { |hsh| hsh.map { |k, v| [k.to_s, v].to_h } }
+        res = db_isutar.xquery(%| select * from star where keyword = ? |, keyword).to_a
+        res.map do |hsh|
+          hsh.map { |k, v| [k.to_s, v]}.to_h
+        end
       end
 
       def redirect_found(path)
