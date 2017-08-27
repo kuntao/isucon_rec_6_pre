@@ -10,9 +10,11 @@ require 'rack/utils'
 require 'sinatra/base'
 require 'tilt/erubis'
 require 'redis'
+require 'rack-lineprof'
 
 module Isuda
   class Web < ::Sinatra::Base
+    use Rack::Lineprof, profile: 'web.rb'
     enable :protection
     enable :sessions
 
