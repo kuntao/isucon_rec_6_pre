@@ -133,14 +133,23 @@ module Isuda
       end
 
       def htmlify(content)
+        redis = Redis.new
+
         keywords = db_isuda.xquery(%| select keyword from entry order by keyword_len desc |)
-        pattern = keywords.map {|k| Regexp.escape(k[:keyword]) }.join('|')
+        regexp_hash_key = Digest::SHA1.hexdigest keywords.map { |k| k[:keywords] }.join(':')
+
+        pattern =
+          if redis.exists(regexp_hash_key)
+            redis.get regexp_hash_key
+          else
+            pat = keywords.map {|k| Regexp.escape(k[:keyword]) }.join('|')
+            redis.set regexp_hash_key, pat
+            pat
+          end
 
         content_hash_key = Digest::SHA1.hexdigest(content)
         pattern_hash_key = Digest::SHA1.hexdigest(pattern)
         key = [content_hash_key, pattern_hash_key].join(":")
-
-        redis = Redis.new
 
         return redis.get(key) if redis.exists(key)
         
