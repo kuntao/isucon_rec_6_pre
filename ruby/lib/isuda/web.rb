@@ -17,9 +17,9 @@ module Isuda
 
     set :erb, escape_html: true
     set :public_folder, File.expand_path('../../../../public', __FILE__)
-    set :db_user, ENV['ISUDA_DB_USER'] || 'root'
-    set :db_password, ENV['ISUDA_DB_PASSWORD'] || ''
-    set :dsn, ENV['ISUDA_DSN'] || 'dbi:mysql:db=isuda'
+    set :db_isuda_user, ENV['ISUDA_DB_USER'] || 'root'
+    set :db_isuda_password, ENV['ISUDA_DB_PASSWORD'] || ''
+    set :dsn_isuda, ENV['ISUDA_DSN'] || 'dbi:mysql:db=isuda'
     set :session_secret, 'tonymoris'
     set :isupam_origin, ENV['ISUPAM_ORIGIN'] || 'http://localhost:5050'
     set :isutar_origin, ENV['ISUTAR_ORIGIN'] || 'http://localhost:5001'
@@ -34,7 +34,7 @@ module Isuda
       condition {
         user_id = session[:user_id]
         if user_id
-          user = db.xquery(%| select name from user where id = ? |, user_id).first
+          user = db_isuda.xquery(%| select name from user where id = ? |, user_id).first
           @user_id = user_id
           @user_name = user[:name]
           halt(403) unless @user_name
@@ -49,14 +49,14 @@ module Isuda
     end
 
     helpers do
-      def db
-        Thread.current[:db] ||=
+      def db_isuda
+        Thread.current[:db_isuda] ||=
           begin
-            _, _, attrs_part = settings.dsn.split(':', 3)
+            _, _, attrs_part = settings.dsn_isuda.split(':', 3)
             attrs = Hash[attrs_part.split(';').map {|part| part.split('=', 2) }]
             mysql = Mysql2::Client.new(
-              username: settings.db_user,
-              password: settings.db_password,
+              username: settings.db_isuda_user,
+              password: settings.db_isuda_password,
               database: attrs['db'],
               encoding: 'utf8mb4',
               init_command: %|SET SESSION sql_mode='TRADITIONAL,NO_AUTO_VALUE_ON_ZERO,ONLY_FULL_GROUP_BY'|,
@@ -70,11 +70,11 @@ module Isuda
         chars = [*'A'..'~']
         salt = 1.upto(20).map { chars.sample }.join('')
         salted_password = encode_with_salt(password: pw, salt: salt)
-        db.xquery(%|
+        db_isuda.xquery(%|
           INSERT INTO user (name, salt, password, created_at)
           VALUES (?, ?, ?, NOW())
         |, name, salt, salted_password)
-        db.last_id
+        db_isuda.last_id
       end
 
       def encode_with_salt(password: , salt: )
@@ -90,7 +90,7 @@ module Isuda
       end
 
       def htmlify(content)
-        keywords = db.xquery(%| select keyword from entry order by character_length(keyword) desc |)
+        keywords = db_isuda.xquery(%| select keyword from entry order by character_length(keyword) desc |)
         pattern = keywords.map {|k| Regexp.escape(k[:keyword]) }.join('|')
         kw2hash = {}
         hashed_content = content.gsub(/(#{pattern})/) {|m|
@@ -127,7 +127,7 @@ module Isuda
     end
 
     get '/initialize' do
-      db.xquery(%| DELETE FROM entry WHERE id > 7101 |)
+      db_isuda.xquery(%| DELETE FROM entry WHERE id > 7101 |)
       isutar_initialize_url = URI(settings.isutar_origin)
       isutar_initialize_url.path = '/initialize'
       Net::HTTP.get_response(isutar_initialize_url)
@@ -140,7 +140,7 @@ module Isuda
       per_page = 10
       page = (params[:page] || 1).to_i
 
-      entries = db.xquery(%|
+      entries = db_isuda.xquery(%|
         SELECT * FROM entry
         ORDER BY updated_at DESC
         LIMIT #{per_page}
@@ -151,7 +151,7 @@ module Isuda
         entry[:stars] = load_stars(entry[:keyword])
       end
 
-      total_entries = db.xquery(%| SELECT count(*) AS total_entries FROM entry |).first[:total_entries].to_i
+      total_entries = db_isuda.xquery(%| SELECT count(*) AS total_entries FROM entry |).first[:total_entries].to_i
 
       last_page = (total_entries.to_f / per_page.to_f).ceil
       from = [1, page - 5].max
@@ -195,7 +195,7 @@ module Isuda
 
     post '/login' do
       name = params[:name]
-      user = db.xquery(%| select * from user where name = ? |, name).first
+      user = db_isuda.xquery(%| select * from user where name = ? |, name).first
       halt(403) unless user
       halt(403) unless user[:password] == encode_with_salt(password: params[:password], salt: user[:salt])
 
@@ -216,7 +216,7 @@ module Isuda
       halt(400) if is_spam_content(description) || is_spam_content(keyword)
 
       bound = [@user_id, keyword, description] * 2
-      db.xquery(%|
+      db_isuda.xquery(%|
         INSERT INTO entry (author_id, keyword, description, created_at, updated_at)
         VALUES (?, ?, ?, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
@@ -229,7 +229,7 @@ module Isuda
     get '/keyword/:keyword', set_name: true do
       keyword = params[:keyword] or halt(400)
 
-      entry = db.xquery(%| select * from entry where keyword = ? |, keyword).first or halt(404)
+      entry = db_isuda.xquery(%| select * from entry where keyword = ? |, keyword).first or halt(404)
       entry[:stars] = load_stars(entry[:keyword])
       entry[:html] = htmlify(entry[:description])
 
@@ -243,11 +243,11 @@ module Isuda
       keyword = params[:keyword] or halt(400)
       is_delete = params[:delete] or halt(400)
 
-      unless db.xquery(%| SELECT * FROM entry WHERE keyword = ? |, keyword).first
+      unless db_isuda.xquery(%| SELECT * FROM entry WHERE keyword = ? |, keyword).first
         halt(404)
       end
 
-      db.xquery(%| DELETE FROM entry WHERE keyword = ? |, keyword)
+      db_isuda.xquery(%| DELETE FROM entry WHERE keyword = ? |, keyword)
 
       redirect_found '/'
     end
