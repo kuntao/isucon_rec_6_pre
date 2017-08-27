@@ -234,12 +234,12 @@ module Isuda
       description = params[:description]
       halt(400) if is_spam_content(description) || is_spam_content(keyword)
 
-      bound = [@user_id, keyword, description] * 2
+      bound = [@user_id, keyword, keyword.length, description] * 2
       db_isuda.xquery(%|
-        INSERT INTO entry (author_id, keyword, description, created_at, updated_at)
-        VALUES (?, ?, ?, NOW(), NOW())
+        INSERT INTO entry (author_id, keyword, keyword_len, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
-        author_id = ?, keyword = ?, description = ?, updated_at = NOW()
+        author_id = ?, keyword = ?, keyword_len = ?, description = ?, updated_at = NOW()
       |, *bound)
 
       redirect_found '/'
