@@ -9,6 +9,7 @@ require 'mysql2-cs-bind'
 require 'rack/utils'
 require 'sinatra/base'
 require 'tilt/erubis'
+require 'redis'
 
 module Isuda
   class Web < ::Sinatra::Base
@@ -110,7 +111,7 @@ module Isuda
         ! validation['valid']
       end
 
-      def htmlify(content)
+      def old_htmlify(content)
         keywords = db_isuda.xquery(%| select keyword from entry order by character_length(keyword) desc |)
         pattern = keywords.map {|k| Regexp.escape(k[:keyword]) }.join('|')
         kw2hash = {}
@@ -127,6 +128,30 @@ module Isuda
           escaped_content.gsub!(hash, anchor)
         end
         escaped_content.gsub(/\n/, "<br />\n")
+      end
+
+      def htmlify(content)
+        keywords = db_isuda.xquery(%| select keyword from entry order by keyword_len desc |)
+        pattern = keywords.map {|k| Regexp.escape(k[:keyword]) }.join('|')
+
+        content_hash_key = Digest::SHA1.hexdigest(content)
+        pattern_hash_key = Digest::SHA1.hexdigest(pattern)
+        key = [content_hash_key, pattern_hash_key].join(":")
+
+        redis = Redis.new
+
+        return redis.get(key) if redis.exists(key)
+        
+        hashed_content = Rack::Utils.escape_html(hashed_content)
+        hashed_content = content.gsub(/(#{pattern})/) {|m|
+          mkw = $1
+          kw_url = url("/keyword/#{Rack::Utils.escape_path(mkw)}")
+          '<a href="%s">%s</a>' % [kw_url, Rack::Utils.escape_html(mkw)]
+        }
+        res = hashed_content.gsub(/\n/, "<br />\n")
+        redis.set key, res
+        res
+
       end
 
       def uri_escape(str)
